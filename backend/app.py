@@ -388,11 +388,12 @@ def metasploit_scan():
 
 # ── Network Analyzer + Port Scanner ───────────────────────────────────────────
 
-@app.get("/api/network/analyze")
+@app.post("/api/network/analyze")
 def network_analyze():
-    host = request.args.get("host", "").strip()
+    data = request.json or {}
+    host = data.get("host", "").strip()
     if not host:
-        return jsonify({"error": "Missing required query parameter: host"}), 400
+        return jsonify({"error": "Missing required field: host"}), 400
     try:
         return jsonify(network.full_analyze(host))
     except Exception as e:
