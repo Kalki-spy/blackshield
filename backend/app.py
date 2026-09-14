@@ -45,6 +45,21 @@ from auth_server import (
 
 init_db()
 
+# ---------- Activity history + AI Assistant persistence ----------
+# Ported in from activity_server.py / assistant_server.py, which used to run
+# as separate http.server processes (ports 8781 / 8783) and were never
+# merged into this consolidated app — that's why /api/activity/* and
+# /api/assistant/* 404'd in production while every other tool worked.
+# Both underlying modules (activity_log.py, assistant_data.py) are plain
+# SQLite helpers with no HTTP framework baked in, so they import cleanly
+# here exactly like the logic/ tool modules below.
+
+import activity_log
+import assistant_data
+
+activity_log.init_db()
+assistant_data.init_db()
+
 @app.post("/api/auth/signup")
 def auth_signup():
     data = request.json or {}
@@ -390,6 +405,9 @@ def metasploit_scan():
 
 @app.post("/api/network/analyze")
 def network_analyze():
+    # NetworkAnalyzer.tsx sends a POST with a JSON body ({ host }), not a
+    # GET query string — this route used to be GET-only and mismatched the
+    # frontend, which is why it 405'd.
     data = request.json or {}
     host = data.get("host", "").strip()
     if not host:
@@ -500,6 +518,114 @@ def ssl_inspect():
         return jsonify({"error": "Missing field: host"}), 400
     port = int(data.get("port", 443))
     return jsonify(ssl_inspector.inspect_ssl(host, port))
+
+
+# ---------- Activity summary (dashboard home) ----------
+
+@app.get("/api/activity/summary")
+def activity_summary():
+    try:
+        user_id = int(request.args.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "user_id is required"}), 400
+
+    return jsonify({
+        "active_scans":     activity_log.get_active_scans(user_id),
+        "recent_findings":  activity_log.get_recent_findings(user_id),
+        "recent_activity":  activity_log.get_recent_activity(user_id),
+        "severity_counts":  activity_log.get_severity_counts(user_id),
+    })
+
+
+# ---------- AI Assistant: conversations, messages, reports ----------
+
+@app.get("/api/assistant/conversations")
+def assistant_list_conversations():
+    try:
+        user_id = int(request.args.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "user_id is required"}), 400
+    return jsonify(assistant_data.list_conversations(user_id))
+
+
+@app.post("/api/assistant/conversations")
+def assistant_create_conversation():
+    data = request.json or {}
+    try:
+        user_id = int(data["user_id"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "user_id is required"}), 400
+    title = str(data.get("title", "New conversation"))
+    conv_id = assistant_data.create_conversation(user_id, title)
+    return jsonify({"id": conv_id})
+
+
+@app.get("/api/assistant/conversations/<int:conversation_id>/messages")
+def assistant_get_messages(conversation_id):
+    try:
+        user_id = int(request.args.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "user_id is required"}), 400
+    messages = assistant_data.get_messages(conversation_id, user_id)
+    if messages is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(messages)
+
+
+@app.post("/api/assistant/conversations/<int:conversation_id>/messages")
+def assistant_add_message(conversation_id):
+    data = request.json or {}
+    try:
+        role = str(data["role"])
+        content = str(data["content"])
+    except KeyError:
+        return jsonify({"error": "role and content are required"}), 400
+    assistant_data.add_message(conversation_id, role, content)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/assistant/reports")
+def assistant_list_reports():
+    try:
+        user_id = int(request.args.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "user_id is required"}), 400
+    return jsonify(assistant_data.list_reports(user_id))
+
+
+@app.get("/api/assistant/reports/<int:report_id>")
+def assistant_get_report(report_id):
+    try:
+        user_id = int(request.args.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "user_id is required"}), 400
+    report = assistant_data.get_report(report_id, user_id)
+    if report is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(report)
+
+
+@app.post("/api/assistant/reports")
+def assistant_create_report():
+    data = request.json or {}
+    try:
+        user_id = int(data["user_id"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "user_id is required"}), 400
+    title = str(data.get("title", "Untitled report"))
+    report_id = assistant_data.create_report(user_id, title)
+    return jsonify({"id": report_id})
+
+
+@app.post("/api/assistant/reports/<int:report_id>/items")
+def assistant_add_report_item(report_id):
+    data = request.json or {}
+    try:
+        content = str(data["content"])
+    except KeyError:
+        return jsonify({"error": "content is required"}), 400
+    assistant_data.add_report_item(report_id, content, data.get("source"))
+    return jsonify({"ok": True})
 
 
 if __name__=="__main__":
