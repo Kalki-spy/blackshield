@@ -1,0 +1,169 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import os
+import requests
+
+app = Flask(__name__)
+
+CORS(
+    app,
+    origins=[
+        "https://black-shield-icfy.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:8080"
+    ],
+    supports_credentials=True
+)
+
+# ---------- Health ----------
+
+@app.get("/")
+def home():
+    return {
+        "service": "BlackShield Backend",
+        "status": "running"
+    }
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.get("/api/health")
+def api_health():
+    return {"status": "ok"}
+
+# ---------- Auth ----------
+
+from auth_server import (
+    signup,
+    login,
+    logout,
+    get_me,
+    init_db
+)
+
+init_db()
+
+@app.post("/api/auth/signup")
+def auth_signup():
+    data = request.json or {}
+    status, body = signup(
+        data.get("username",""),
+        data.get("email",""),
+        data.get("password","")
+    )
+    return jsonify(body), status
+
+@app.post("/api/auth/login")
+def auth_login():
+    data = request.json or {}
+    status, body = login(
+        data.get("email",""),
+        data.get("password","")
+    )
+    return jsonify(body), status
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    token = request.headers.get("Authorization","").replace("Bearer ","")
+    status, body = logout(token)
+    return jsonify(body), status
+
+@app.get("/api/auth/me")
+def auth_me():
+    token = request.headers.get("Authorization","").replace("Bearer ","")
+    status, body = get_me(token)
+    return jsonify(body), status
+
+# ---------- Proxy helper ----------
+
+def proxy(target):
+    url = f"http://127.0.0.1:{target}{request.full_path}"
+    if url.endswith("?"):
+        url = url[:-1]
+
+    r = requests.request(
+        method=request.method,
+        url=url,
+        headers={k:v for k,v in request.headers if k.lower()!="host"},
+        data=request.get_data(),
+        cookies=request.cookies,
+        allow_redirects=False
+    )
+
+    excluded = ["content-encoding","content-length","transfer-encoding","connection"]
+    headers = [(k,v) for k,v in r.raw.headers.items() if k.lower() not in excluded]
+
+    return r.content, r.status_code, headers
+
+# ---------- Tool Routes ----------
+
+@app.route("/api/sslanalyzer/<path:p>",methods=["GET","POST"])
+def ssl_proxy(p):
+    return proxy(8765)
+
+@app.route("/api/chat",methods=["GET","POST"])
+def chat_proxy():
+    return proxy(8000)
+
+@app.route("/api/firewall/<path:p>",methods=["GET","POST"])
+def firewall_proxy(p):
+    return proxy(8777)
+
+@app.route("/api/network/<path:p>",methods=["GET","POST"])
+def network_proxy(p):
+    return proxy(8775)
+
+@app.route("/api/nmap/<path:p>",methods=["GET","POST"])
+def nmap_proxy(p):
+    return proxy(8773)
+
+@app.route("/api/ddos/<path:p>",methods=["GET","POST"])
+def ddos_proxy(p):
+    return proxy(8775)
+
+@app.route("/api/password/<path:p>",methods=["GET","POST"])
+def password_proxy(p):
+    return proxy(8778)
+
+@app.route("/api/cve/<path:p>",methods=["GET","POST"])
+def cve_proxy(p):
+    return proxy(8779)
+
+@app.route("/api/ssl/<path:p>",methods=["GET","POST"])
+def ssltool_proxy(p):
+    return proxy(8780)
+
+@app.route("/api/gobuster/<path:p>",methods=["GET","POST"])
+def gobuster_proxy(p):
+    return proxy(8781)
+
+@app.route("/api/hashcat/<path:p>",methods=["GET","POST"])
+def hashcat_proxy(p):
+    return proxy(8782)
+
+@app.route("/api/sqlmap/<path:p>",methods=["GET","POST"])
+def sqlmap_proxy(p):
+    return proxy(8783)
+
+@app.route("/api/metasploit/<path:p>",methods=["GET","POST"])
+def metasploit_proxy(p):
+    return proxy(8784)
+
+@app.route("/api/sniper/<path:p>",methods=["GET","POST"])
+def sniper_proxy(p):
+    return proxy(8785)
+
+@app.route("/api/ids/<path:p>",methods=["GET","POST"])
+def ids_proxy(p):
+    return proxy(8786)
+
+@app.route("/api/subdomain/<path:p>",methods=["GET","POST"])
+def subdomain_proxy(p):
+    return proxy(8787)
+
+if __name__=="__main__":
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT",10000))
+    )
