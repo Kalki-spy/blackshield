@@ -51,7 +51,7 @@ export default function PortScanner() {
     }, 800);
 
     try {
-      const response = await fetch(`${BACKEND}/portscan`, {
+      const response = await fetch(`${BACKEND}/network/portscan`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
