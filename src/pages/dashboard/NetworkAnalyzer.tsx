@@ -29,7 +29,7 @@ interface HopResult {
 interface NetworkAnalysis {
   host: string; ip: string; timestamp: string;
   dns:  { records: DnsRecord[]; error: string | null };
-  ping: { reachable: boolean; min_ms: number | null; avg_ms: number | null; max_ms: number | null; loss_pct: number; error?: string | null; raw?: string };
+  ping: { reachable: boolean; min_ms: number | null; avg_ms: number | null; max_ms: number | null; loss_pct: number; error?: string | null; raw?: string; method?: string; note?: string };
   ports:      PortResult[];
   traceroute: HopResult[];
   findings:   Finding[];
@@ -198,7 +198,7 @@ export default function NetworkAnalyzer() {
                 }`}>
                   {result.ping.reachable ? "● REACHABLE" : "○ UNREACHABLE"}
                 </span>
-                                {result.ping.reachable && (
+                {result.ping.reachable && result.ping.avg_ms != null && (
                   <div className="grid grid-cols-3 gap-2">
                     {([
                       ["Min", result.ping.min_ms, "text-success"],
@@ -212,60 +212,12 @@ export default function NetworkAnalyzer() {
                     ))}
                   </div>
                 )}
-                                {result.ping.reachable && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {([
-                      ["Min", result.ping.min_ms, "text-success"],
-                      ["Avg", result.ping.avg_ms, "text-primary"],
-                      ["Max", result.ping.max_ms, "text-orange-400"],
-                    ] as [string, number|null, string][]).map(([label, val, cls]) => (
-                      <div key={label} className="p-2 rounded-md bg-muted/30 border border-border text-center">
-                        <p className={`font-mono text-sm font-bold ${cls}`}>{val != null ? `${val}ms` : "—"}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{label} RTT</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                                {result.ping.reachable && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {([
-                      ["Min", result.ping.min_ms, "text-success"],
-                      ["Avg", result.ping.avg_ms, "text-primary"],
-                      ["Max", result.ping.max_ms, "text-orange-400"],
-                    ] as [string, number|null, string][]).map(([label, val, cls]) => (
-                      <div key={label} className="p-2 rounded-md bg-muted/30 border border-border text-center">
-                        <p className={`font-mono text-sm font-bold ${cls}`}>{val != null ? `${val}ms` : "—"}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{label} RTT</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {result.ping.reachable && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {([
-                      ["Min", result.ping.min_ms, "text-success"],
-                      ["Avg", result.ping.avg_ms, "text-primary"],
-                      ["Max", result.ping.max_ms, "text-orange-400"],
-                    ] as [string, number|null, string][]).map(([label, val, cls]) => (
-                      <div key={label} className="p-2 rounded-md bg-muted/30 border border-border text-center">
-                        <p className={`font-mono text-sm font-bold ${cls}`}>{val != null ? `${val}ms` : "—"}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{label} RTT</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {result.ping.reachable && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {([
-                      ["Min", result.ping.min_ms, "text-success"],
-                      ["Avg", result.ping.avg_ms, "text-primary"],
-                      ["Max", result.ping.max_ms, "text-orange-400"],
-                    ] as [string, number|null, string][]).map(([label, val, cls]) => (
-                      <div key={label} className="p-2 rounded-md bg-muted/30 border border-border text-center">
-                        <p className={`font-mono text-sm font-bold ${cls}`}>{val != null ? `${val}ms` : "—"}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{label} RTT</p>
-                      </div>
-                    ))}
+                {result.ping.reachable && result.ping.avg_ms == null && result.ping.note && (
+                  <div className="p-2.5 rounded-md bg-muted/20 border border-border">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                      Reachability note
+                    </p>
+                    <p className="text-xs text-muted-foreground">{result.ping.note}</p>
                   </div>
                 )}
                 {!result.ping.reachable && (result.ping.error || result.ping.raw) && (
