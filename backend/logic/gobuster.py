@@ -18,6 +18,7 @@ Endpoints:
 
 import json
 import socket
+import time
 import urllib.request
 import urllib.error
 import concurrent.futures
@@ -30,9 +31,14 @@ from urllib.parse import urlparse, parse_qs, urljoin
 import os
 PORT = int(os.environ.get("PORT", 8767))
 ALLOWED_ORIGINS = ["*"]
-REQUEST_TIMEOUT = 4
+REQUEST_TIMEOUT = 3
 MAX_WORKERS     = 50
 USER_AGENT      = "Mozilla/5.0 (GobusterClone/1.0)"
+# Hard wall-clock budget for a whole scan. Keeps us well inside any reverse
+# proxy / gateway timeout (Vercel rewrite, Render free-tier, etc.) even if the
+# target is slow or starts rate-limiting mid-scan — we return whatever we have
+# instead of hanging until the platform kills the connection.
+MAX_SCAN_SECONDS = 20.0
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -224,11 +230,29 @@ def run_scan(base_url: str, mode: str = "dir", extensions: list[str] | None = No
             with lock:
                 results.append(result)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-        ex.map(probe_entry, unique)
+    # Run with a hard wall-clock deadline instead of waiting for every probe.
+    # Slow/rate-limiting targets can otherwise push a full-wordlist scan past
+    # whatever timeout sits in front of this service (proxy, gateway, etc.),
+    # which surfaces to the browser as a bare failed request. Here we submit
+    # everything up front, wait up to MAX_SCAN_SECONDS total, then return
+    # whatever has completed and abandon the rest rather than hang.
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+    timed_out = False
+    try:
+        futures = [ex.submit(probe_entry, t) for t in unique]
+        done, pending = concurrent.futures.wait(futures, timeout=MAX_SCAN_SECONDS)
+        if pending:
+            timed_out = True
+    finally:
+        # Don't block on stragglers — let them die out in the background.
+        ex.shutdown(wait=False, cancel_futures=True)
+
+    # Snapshot under the lock in case a straggler thread is still appending.
+    with lock:
+        snapshot = list(results)
 
     # Sort: sensitive first, then by status, then alphabetically
-    results.sort(key=lambda r: (
+    snapshot.sort(key=lambda r: (
         0 if r["sensitive"] else 1,
         0 if r["flag"] == "found" else
         1 if r["flag"] == "auth_required" else
@@ -239,7 +263,7 @@ def run_scan(base_url: str, mode: str = "dir", extensions: list[str] | None = No
 
     # Count by flag
     flag_counts: dict[str, int] = {}
-    for r in results:
+    for r in snapshot:
         flag_counts[r["flag"]] = flag_counts.get(r["flag"], 0) + 1
 
     return {
@@ -248,9 +272,10 @@ def run_scan(base_url: str, mode: str = "dir", extensions: list[str] | None = No
         "mode":          mode,
         "extensions":    extensions,
         "total_probed":  total_probed,
-        "total_found":   len(results),
+        "total_found":   len(snapshot),
         "flag_counts":   flag_counts,
-        "results":       results,
+        "results":       snapshot,
+        "timed_out":     timed_out,
     }
 
 
