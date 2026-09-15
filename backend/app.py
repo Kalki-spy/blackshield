@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
+import time
 
 # Loads backend/.env for local development. On Render/Vercel, real
 # environment variables set in the dashboard take precedence — this is a
@@ -173,6 +174,7 @@ import logic.network      as network
 import logic.nmap         as nmap
 import logic.password     as password
 import logic.ssl_inspector as ssl_inspector
+import logic.portscan     as portscan
 
 
 def _err(e: Exception, code: int = 500):
@@ -419,23 +421,59 @@ def network_analyze():
 
 @app.post("/api/network/portscan")
 def network_portscan():
+    # Was calling logic/ddos.py's scan_ports() — a different, older,
+    # much simpler implementation (10 hardcoded ports, sequential, no
+    # activity_log wiring) that got mixed up with this route during the
+    # app.py consolidation. Restored to use logic/portscan.py, ported
+    # from port_scanner_server.py — the actual service this tool was
+    # built and tested against locally.
     data = request.json or {}
     host = data.get("host", "").strip()
     if not host:
         return jsonify({"error": "Host required"}), 400
-    ports_input = data.get("ports")
+
+    ip = portscan.resolve(host)
+    if not ip:
+        return jsonify({"error": f"Cannot resolve host: {host}"}), 400
+
+    user_id      = data.get("user_id")
+    ports_raw    = str(data.get("ports", "common"))
+    timeout      = float(data.get("timeout", portscan.SCAN_TIMEOUT))
+    threads      = min(int(data.get("threads", portscan.MAX_THREADS)), portscan.MAX_THREADS)
+    grab_banners = bool(data.get("banners", False))
+
     try:
-        if ports_input:
-            if "-" in ports_input:
-                start, end = map(int, ports_input.split("-"))
-                ports = list(range(start, min(end + 1, start + 1000)))
-            else:
-                ports = [int(p.strip()) for p in ports_input.split(",") if p.strip()]
-        else:
-            ports = list(ddos.COMMON_PORTS.keys())
-    except Exception:
-        return jsonify({"error": "Invalid ports format"}), 400
-    return jsonify({"host": host, "ports": ddos.scan_ports(host, ports)})
+        port_list = portscan.parse_ports(ports_raw)
+    except ValueError as e:
+        return jsonify({"error": f"Invalid port spec: {e}"}), 400
+
+    scan_id = activity_log.start_scan(user_id, "Port Scanner", host) if user_id else None
+    try:
+        t0      = time.time()
+        results = portscan.port_scan(host, port_list, timeout, grab_banners, threads)
+        elapsed = round(time.time() - t0, 2)
+
+        if user_id:
+            for r in results:
+                if r["open"] and r["risk"] == "high":
+                    activity_log.add_finding(
+                        user_id, "Port Scanner", host,
+                        f"High-risk service exposed on port {r['port']} ({r['service']})",
+                        severity="high", scan_id=scan_id,
+                    )
+            activity_log.finish_scan(scan_id, status="completed", tool="Port Scanner", target=host, user_id=user_id)
+    except Exception as e:
+        if user_id and scan_id:
+            activity_log.finish_scan(scan_id, status="failed", tool="Port Scanner", target=host, user_id=user_id)
+        return _err(e)
+
+    return jsonify({
+        "host":      host,
+        "ip":        ip,
+        "elapsed_s": elapsed,
+        "summary":   portscan.summary(results),
+        "results":   results,
+    })
 
 
 # ── Nmap-style Port Scanner ───────────────────────────────────────────────────
