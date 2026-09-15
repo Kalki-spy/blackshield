@@ -36,6 +36,7 @@ interface ScanResponse {
   total_found: number;
   flag_counts: Record<string, number>;
   results: ScanResult[];
+  timed_out?: boolean;
 }
 
 const SCAN_STEPS: [number, string][] = [
@@ -276,6 +277,13 @@ export default function GobusterTool() {
 
             {scanning && (
               <StatusCard status="Running" message={progressMsg} progress={progress} elapsed="" />
+            )}
+
+            {result?.timed_out && (
+              <div className="flex items-start gap-2 bg-warning/10 border border-warning/30 rounded-md p-3 text-xs text-warning">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>Scan hit its time budget before finishing every path — showing partial results from what completed. Try fewer threads or a narrower extension list for a full pass.</span>
+              </div>
             )}
 
             {result && (
