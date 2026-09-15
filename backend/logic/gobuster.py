@@ -30,7 +30,7 @@ from urllib.parse import urlparse, parse_qs, urljoin
 import os
 PORT = int(os.environ.get("PORT", 8767))
 ALLOWED_ORIGINS = ["*"]
-REQUEST_TIMEOUT = 6
+REQUEST_TIMEOUT = 4
 MAX_WORKERS     = 50
 USER_AGENT      = "Mozilla/5.0 (GobusterClone/1.0)"
 # ──────────────────────────────────────────────────────────────────────────────
@@ -255,4 +255,3 @@ def run_scan(base_url: str, mode: str = "dir", extensions: list[str] | None = No
 
 
 # ── HTTP Handler ───────────────────────────────────────────────────────────────
-
