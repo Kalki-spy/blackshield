@@ -214,7 +214,10 @@ def gobuster_scan():
     url     = request.args.get("url", "").strip()
     mode    = request.args.get("mode", "dir").strip().lower()
     ext_raw = request.args.get("ext", "php,html,txt,js,json").strip()
-    threads = int(request.args.get("threads", "30"))
+    try:
+        threads = int(request.args.get("threads", "30"))
+    except ValueError:
+        threads = 30
 
     if not url:
         return jsonify({"error": "Missing required parameter: url"}), 400
