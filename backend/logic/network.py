@@ -296,7 +296,25 @@ def full_analyze(host: str) -> dict:
     open_ports = [p for p in port_r if p["open"]]
     risky_open = [p for p in open_ports if p["port"] in RISKY_PORTS]
 
-    if ping_r["reachable"]:
+    # ICMP ping depends on a system `ping` binary and (often) raw-socket
+    # capability that hosted containers (Render, most PaaS) frequently don't
+    # provide — that's an environment limitation, not evidence the host is
+    # down. When ICMP comes back inconclusive, fall back to the TCP scan we
+    # already ran: if anything answered on a TCP port, the host is reachable.
+    if not ping_r["reachable"] and open_ports:
+        ping_r["reachable"] = True
+        ping_r["method"] = "tcp_fallback"
+        ping_r["note"] = (
+            "ICMP ping unavailable in this hosting environment "
+            f"({ping_r.get('error') or 'no ICMP reply'}) — reachability "
+            "confirmed via open TCP ports instead."
+        )
+
+    if ping_r["reachable"] and ping_r.get("method") == "tcp_fallback":
+        findings.append({"item": "Host Reachability", "status": "secure", "severity": "low",
+            "description": f"Host reachable via TCP — {len(open_ports)} open port(s) responded "
+                            "(ICMP ping isn't available in this hosting environment)"})
+    elif ping_r["reachable"]:
         findings.append({"item": "Host Reachability", "status": "secure", "severity": "low",
             "description": f"Host reachable — avg RTT {ping_r.get('avg_ms', 'N/A')} ms, {ping_r.get('loss_pct', 0)}% loss"})
     else:
@@ -344,5 +362,3 @@ def parse_body(h):
         return json.loads(raw.decode())
     except Exception:
         return {}
-
-
